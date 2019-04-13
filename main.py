@@ -34,7 +34,6 @@ def load_vgg(sess, vgg_path):
     vgg_layer4_out_tensor_name = 'layer4_out:0'
     vgg_layer7_out_tensor_name = 'layer7_out:0'
 
-    export_dir = './data/vgg'
     tf.saved_model.loader.load(sess, [vgg_tag], vgg_path)
 
     graph = tf.get_default_graph()
@@ -43,7 +42,7 @@ def load_vgg(sess, vgg_path):
     layer3_out = graph.get_tensor_by_name(vgg_layer3_out_tensor_name)
     layer4_out = graph.get_tensor_by_name(vgg_layer4_out_tensor_name)
     layer7_out = graph.get_tensor_by_name(vgg_layer7_out_tensor_name)
-    
+
     return image_input, keep_prob, layer3_out, layer4_out, layer7_out
 tests.test_load_vgg(load_vgg, tf)
 
@@ -58,28 +57,78 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     :return: The Tensor for the last layer of output
     """
     # DONE: Implement function
-    conv_1x1_on_7 = tf.layers.conv2d(vgg_layer7_out, num_classes, 1, padding='same',
-                                kernel_initializer=tf.random_normal_initializer(stddev=0.01),
-                                kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
-    deconv_1 = tf.layers.conv2d_transpose(conv_1x1_on_7, num_classes, 4, strides=(2, 2), padding='same',
-                                kernel_initializer=tf.random_normal_initializer(stddev=0.01),
-                                kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
-    conv_1x1_on_4 = tf.layers.conv2d(vgg_layer4_out, num_classes, 1, padding='same',
-                                kernel_initializer=tf.random_normal_initializer(stddev=0.01),
-                                kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
-    skip_1 = tf.add(deconv_1, conv_1x1_on_4)
-    deconv_2 = tf.layers.conv2d_transpose(skip_1, num_classes, 4, strides=(2, 2), padding='same',
-                                kernel_initializer=tf.random_normal_initializer(stddev=0.01),
-                                kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
-    conv_1x1_on_3 = tf.layers.conv2d(vgg_layer4_out, num_classes, 1, padding='same',
-                                kernel_initializer=tf.random_normal_initializer(stddev=0.01),
-                                kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
-    skip_2 = tf.add(deconv_2, conv_1x1_on_3)                       
-    deconv_3 = tf.layers.conv2d_transpose(skip_2, num_classes, 16, strides=(8, 8), padding='same',
-                                kernel_initializer=tf.random_normal_initializer(stddev=0.01),
-                                kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3))
-    # tf.Print(deconv_3, [tf.shape(deconv_3)[1:3]])
-    return deconv_3
+    w_init_stddev = .01
+    w_l2_reg = 1e-3
+    
+    conv_1x1_on_7 = tf.layers.conv2d(
+            vgg_layer7_out,
+            num_classes,
+            1,
+            padding='same',
+            kernel_initializer=tf.random_normal_initializer(stddev=w_init_stddev),
+            kernel_regularizer=tf.contrib.layers.l2_regularizer(w_l2_reg),
+            name='conv_1x1_on_7')
+
+    deconv_1_x2 = tf.layers.conv2d_transpose(
+            conv_1x1_on_7,
+            num_classes,
+            4,
+            strides=(2, 2),
+            padding='same',
+            kernel_initializer=tf.random_normal_initializer(stddev=w_init_stddev),
+            kernel_regularizer=tf.contrib.layers.l2_regularizer(w_l2_reg),
+            name='deconv_1_x2')
+
+    conv_1x1_on_4 = tf.layers.conv2d(
+            vgg_layer4_out,
+            num_classes,
+            1,
+            padding='same',
+            kernel_initializer=tf.random_normal_initializer(stddev=w_init_stddev),
+            kernel_regularizer=tf.contrib.layers.l2_regularizer(w_l2_reg),
+            name='conv_1x1_on_4')
+            
+    skip_1 = tf.add(
+            deconv_1_x2,
+            conv_1x1_on_4,
+            name='skip_1')
+
+    deconv_2_x2 = tf.layers.conv2d_transpose(
+            skip_1,
+            num_classes,
+            4,
+            strides=(2, 2),
+            padding='same',
+            kernel_initializer=tf.random_normal_initializer(stddev=w_init_stddev),
+            kernel_regularizer=tf.contrib.layers.l2_regularizer(w_l2_reg),
+            name='deconv_2_x2')
+
+    conv_1x1_on_3 = tf.layers.conv2d(
+            vgg_layer3_out,
+            num_classes,
+            1,
+            padding='same',
+            kernel_initializer=tf.random_normal_initializer(stddev=w_init_stddev),
+            kernel_regularizer=tf.contrib.layers.l2_regularizer(w_l2_reg),
+            name='conv_1x1_on_3')
+
+    skip_2 = tf.add(
+            deconv_2_x2,
+            conv_1x1_on_3,
+            name='skip_2')
+
+    deconv_3_x8 = tf.layers.conv2d_transpose(
+            skip_2,
+            num_classes,
+            16,
+            strides=(8, 8),
+            padding='same',
+            kernel_initializer=tf.random_normal_initializer(stddev=w_init_stddev),
+            kernel_regularizer=tf.contrib.layers.l2_regularizer(w_l2_reg),
+            name='deconv_3_x8')
+
+    # tf.Print(deconv_3_x8, [tf.shape(deconv_3_x8)[1:3]])
+    return deconv_3_x8
 tests.test_layers(layers)
 
 
@@ -96,7 +145,8 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
     logits = tf.reshape(nn_last_layer, (-1, num_classes))
     correct_label = tf.reshape(correct_label, (-1, num_classes))
     cross_entropy_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=correct_label))
-    train_op = tf.train.AdamOptimizer(learning_rate).minimize(cross_entropy_loss)
+    optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
+    train_op = optimizer.minimize(cross_entropy_loss)
     return logits, train_op, cross_entropy_loss
 tests.test_optimize(optimize)
 
@@ -117,18 +167,19 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
     :param learning_rate: TF Placeholder for learning rate
     """
     # DONE: Implement function
-    print("Training...\n")
+    sess.run(tf.global_variables_initializer())
+
+    print("Training for " + str(epochs) + " epochs...\n")
     for epoch in range(epochs):
-        print("Epoch " + str(epoch) + "...")
+        print("Epoch " + str(epoch + 1) + "...")
         for image, label in get_batches_fn(batch_size):
             _, loss = sess.run([train_op, cross_entropy_loss], 
                                feed_dict={input_image: image,
                                           correct_label: label,
                                           keep_prob: .5,
-                                          learning_rate: .001})
+                                          learning_rate: .0001})
             print("  loss = " + str(loss))
-            
-    pass
+    print('Finished training')        
 tests.test_train_nn(train_nn)
 
 
@@ -141,7 +192,6 @@ def run():
 
     # Download pretrained vgg model
     helper.maybe_download_pretrained_vgg(data_dir)
-
     # OPTIONAL: Train and Inference on the cityscapes dataset instead of the Kitti dataset.
     # You'll need a GPU with at least 10 teraFLOPS to train on.
     #  https://www.cityscapes-dataset.com/
@@ -149,13 +199,11 @@ def run():
     with tf.Session() as sess:
         # Path to vgg model
         vgg_path = os.path.join(data_dir, 'vgg')
-        epochs = 5
-        batch_size = 2
+        epochs = 6
+        batch_size = 5
 
         correct_label = tf.placeholder(tf.int32, [None, None, None, num_classes], name='correct_label')
         learning_rate = tf.placeholder(tf.float32, name='learning_rate')
-        init = tf.global_variables_initializer()
-        sess.run(init)
         # Create function to get batches
         get_batches_fn = helper.gen_batch_function(os.path.join(data_dir, 'data_road/training'), image_shape)
 
